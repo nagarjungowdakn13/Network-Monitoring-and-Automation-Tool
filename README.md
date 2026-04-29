@@ -26,8 +26,13 @@ webhook).
 ```bash
 pip install -r requirements.txt
 
+# Optional editable install. This exposes the `netmon` console command.
+pip install -e .
+
 # Foreground monitor (Ctrl+C to stop). Reads ./config.yaml by default.
 python -m netmon start-monitor
+# or, after editable install:
+netmon start-monitor
 
 # Same, plus the live web dashboard at http://127.0.0.1:8765
 python -m netmon start-monitor --dashboard --open
@@ -53,12 +58,16 @@ python -m netmon start-monitor --dashboard --port 8765 --open
 What you get:
 
 - **KPI strip** — live Mbps in/out, connection count, packets/s, alerts fired/suppressed
-- **Bandwidth chart** — last ~10 min, area-filled, in/out overlay
+- **Bandwidth chart** — last ~10 min, inbound/outbound overlay with threshold guides
 - **Connections + packets/s chart** — dual y-axis line chart
+- **Anomaly markers** — visual markers on the charts when spike alerts fire
 - **Alert feed** — newest first, severity-coloured, flashes on arrival
 - **Diagnostics panel** — one-click run; results inline
 - **Configuration panel** — current thresholds, cooldown, handlers
 - **Connection-state panel** — ESTABLISHED / LISTEN / TIME_WAIT counts
+- **Light/dark themes** — toggle from the toolbar; respects OS preference by default
+- **Keyboard shortcuts + help dialog** — quick controls for theme, pause, filters,
+  simulated spikes, diagnostics and help
 - **Simulate Spike button** — injects a synthetic anomaly through the *real*
   pipeline. Useful for live demos: shows the alert lighting up, the feed
   updating, and the cooldown kicking in if you mash the button.
@@ -270,6 +279,31 @@ matters you need pcap/eBPF, not this tool.
 Rotating file handler at `logs/netmon.log` (10 MiB × 5 backups by default),
 plus stderr when `logging.console: true`. Level is settable via config or
 `NETMON_LOG_LEVEL=DEBUG`.
+
+## Packaging
+
+Install from a checkout with:
+
+```bash
+pip install -e .
+```
+
+That registers a `netmon` console command, so every `python -m netmon ...`
+example can also be run as `netmon ...`.
+
+## Tests
+
+The focused unit tests cover the analyzer's hard thresholds, rolling z-score
+logic, packet error severity, warm-up behavior, and alert cooldown
+deduplication:
+
+```bash
+python -m unittest discover
+```
+
+## License
+
+MIT. See `LICENSE`.
 
 ## Exit codes
 

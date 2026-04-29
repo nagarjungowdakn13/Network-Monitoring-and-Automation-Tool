@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netmon-network-tool"
+version = "0.1.0"
+description = "Async Python network monitoring and automation tool with a live dashboard, anomaly detection, diagnostics, and pluggable alert handlers."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Nagarjun Gowda", email = "nagarjunkn13@gmail.com" }
+]
+dependencies = [
+  "psutil>=5.9.0",
+  "PyYAML>=6.0",
+  "aiohttp>=3.9.0"
+]
+keywords = ["network-monitoring", "automation", "asyncio", "dashboard", "anomaly-detection"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Monitoring",
+  "Topic :: System :: Networking :: Monitoring"
+]
+
+[project.scripts]
+netmon = "netmon.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["netmon*"]
+
+[tool.setuptools.package-data]
+"netmon.dashboard" = ["static/*"]
