@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import importlib
 import json
 import logging
 import shlex
@@ -119,6 +120,29 @@ _BUILTIN_FACTORIES: dict[str, Callable[[dict], HandlerFn]] = {
 }
 
 
+def register_handler(name: str, factory: Callable[[dict], HandlerFn]) -> None:
+    """Register an alert handler factory.
+
+    External packages can call this during import, or configs can reference a
+    factory directly as ``package.module:function``.
+    """
+    _BUILTIN_FACTORIES[name] = factory
+
+
+def _load_factory(name: str) -> Callable[[dict], HandlerFn] | None:
+    factory = _BUILTIN_FACTORIES.get(name)
+    if factory is not None:
+        return factory
+    if ":" not in name:
+        return None
+    module_name, attr = name.split(":", 1)
+    module = importlib.import_module(module_name)
+    candidate = getattr(module, attr)
+    if not callable(candidate):
+        raise TypeError(f"alert handler factory is not callable: {name}")
+    return candidate
+
+
 def _anomaly_to_dict(a: Anomaly) -> dict:
     d = dataclasses.asdict(a)
     d["severity"] = a.severity.value
@@ -144,11 +168,11 @@ class AlertManager:
     def _build_handlers(self, specs: list[HandlerCfg]) -> list[HandlerFn]:
         out: list[HandlerFn] = []
         for h in specs:
-            factory = _BUILTIN_FACTORIES.get(h.type)
-            if factory is None:
-                log.warning("unknown alert handler type: %s - skipping", h.type)
-                continue
             try:
+                factory = _load_factory(h.type)
+                if factory is None:
+                    log.warning("unknown alert handler type: %s - skipping", h.type)
+                    continue
                 out.append(factory(h.options))
             except Exception:
                 log.exception("failed to build handler %s", h.type)

@@ -20,7 +20,7 @@ import time
 
 from netmon.alerts import AlertManager
 from netmon.analyzer import Analyzer, Anomaly, Severity
-from netmon.config import Config
+from netmon.config import Config, load_config
 from netmon.hub import Hub
 from netmon.monitor import NetworkMonitor
 from netmon.state import StateStore
@@ -37,6 +37,8 @@ class Runner:
         self.state = StateStore(cfg.state.file, cfg.state.flush_every_seconds)
         self.hub = hub or Hub()
         self._stop = asyncio.Event()
+        self._config_mtime = self._read_config_mtime()
+        self._tick_failures = 0
         # Anomalies queued via inject_anomaly() are merged into the next tick's
         # analysis output so the dashboard's Simulate Spike button behaves
         # exactly like a real detection (cooldown, fan-out to handlers, etc).
@@ -74,6 +76,7 @@ class Runner:
             while not self._stop.is_set():
                 tick_started = time.monotonic()
                 try:
+                    self._maybe_reload_config()
                     sample = await self.monitor.sample()
                     anomalies = self.analyzer.analyze(sample)
                     if self._injected:
@@ -82,10 +85,12 @@ class Runner:
                     if anomalies:
                         log.debug("detected %d anomalies", len(anomalies))
                     await self.alerts.dispatch(anomalies)
-                    self.state.update(sample, anomalies, self.alerts.stats())
+                    self._tick_failures = 0
+                    self.state.update(sample, anomalies, self.alerts.stats(), self._health())
                     self.state.maybe_flush()
                     self._publish(sample, anomalies)
                 except Exception:  # noqa: BLE001
+                    self._tick_failures += 1
                     log.exception("tick failed")
 
                 # Sleep the *remainder* so we don't drift when a tick runs long.
@@ -119,8 +124,50 @@ class Runner:
             "sample": sample.to_dict(),
             "anomalies": anomaly_dicts,
             "alert_stats": self.alerts.stats(),
+            "system_state": self.state._snap.system_state,
+            "health": self._health(),
             "samples_processed": self.state._snap.samples_processed,
         })
+
+    def _read_config_mtime(self) -> float | None:
+        if self.cfg.source_path is None:
+            return None
+        try:
+            return self.cfg.source_path.stat().st_mtime
+        except OSError:
+            return None
+
+    def _maybe_reload_config(self) -> None:
+        if self.cfg.source_path is None:
+            return
+        mtime = self._read_config_mtime()
+        if mtime is None or mtime == self._config_mtime:
+            return
+        old = self.cfg
+        self.cfg = load_config(self.cfg.source_path)
+        self._config_mtime = mtime
+        if dataclasses.asdict(old.monitor) != dataclasses.asdict(self.cfg.monitor):
+            self.monitor = NetworkMonitor(self.cfg.monitor.interfaces or None)
+        if (
+            dataclasses.asdict(old.thresholds) != dataclasses.asdict(self.cfg.thresholds)
+            or old.monitor.window_size != self.cfg.monitor.window_size
+        ):
+            self.analyzer = Analyzer(self.cfg.thresholds, self.cfg.monitor.window_size)
+        if dataclasses.asdict(old.alerts) != dataclasses.asdict(self.cfg.alerts):
+            self.alerts = AlertManager(self.cfg.alerts)
+        if old.state.file != self.cfg.state.file:
+            self.state = StateStore(self.cfg.state.file, self.cfg.state.flush_every_seconds)
+        else:
+            self.state.flush_every = self.cfg.state.flush_every_seconds
+        log.info("configuration reloaded from %s", self.cfg.source_path)
+
+    def _health(self) -> dict:
+        return {
+            "state": self.state._snap.system_state,
+            "tick_failures": self._tick_failures,
+            "subscribers": self.hub.subscriber_count,
+            "config_path": str(self.cfg.source_path) if self.cfg.source_path else None,
+        }
 
 
 def make_simulated_anomaly() -> Anomaly:

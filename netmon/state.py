@@ -17,11 +17,18 @@ import tempfile
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any, Deque
 
-from netmon.analyzer import Anomaly
+from netmon.analyzer import Anomaly, Severity
 from netmon.monitor import Sample
+
+
+class SystemState(str, Enum):
+    NORMAL = "normal"
+    WARNING = "warning"
+    CRITICAL = "critical"
 
 
 @dataclass
@@ -32,6 +39,10 @@ class Snapshot:
     last_sample: dict | None = None
     recent_anomalies: list[dict] = field(default_factory=list)
     alert_stats: dict[str, Any] = field(default_factory=dict)
+    anomaly_frequency: dict[str, int] = field(default_factory=dict)
+    system_state: str = SystemState.NORMAL.value
+    state_transitions: list[dict] = field(default_factory=list)
+    health: dict[str, Any] = field(default_factory=dict)
     samples_processed: int = 0
 
 
@@ -57,17 +68,34 @@ class StateStore:
         )
         self._history: Deque[dict] = deque(maxlen=self.HISTORY_LEN)
 
-    def update(self, sample: Sample, anomalies: list[Anomaly], alert_stats: dict) -> None:
+    def update(
+        self,
+        sample: Sample,
+        anomalies: list[Anomaly],
+        alert_stats: dict,
+        health: dict[str, Any] | None = None,
+    ) -> None:
         self._snap.updated_at = time.time()
         self._snap.last_sample = sample.to_dict()
         self._snap.samples_processed += 1
+        next_state = self._state_from_anomalies(anomalies)
+        if next_state != self._snap.system_state:
+            self._snap.state_transitions.append({
+                "ts": self._snap.updated_at,
+                "from": self._snap.system_state,
+                "to": next_state,
+            })
+            self._snap.state_transitions = self._snap.state_transitions[-50:]
+            self._snap.system_state = next_state
         for a in anomalies:
             d = asdict(a)
             d["severity"] = a.severity.value
             self._snap.recent_anomalies.append(d)
+            self._snap.anomaly_frequency[a.key] = self._snap.anomaly_frequency.get(a.key, 0) + 1
         if len(self._snap.recent_anomalies) > self.MAX_RECENT_ANOMALIES:
             self._snap.recent_anomalies = self._snap.recent_anomalies[-self.MAX_RECENT_ANOMALIES:]
         self._snap.alert_stats = alert_stats
+        self._snap.health = health or {}
 
         # Append a small projection to history. Keep the payload tiny — this
         # is what we ship over the wire many times a second to dashboards.
@@ -107,6 +135,13 @@ class StateStore:
             except OSError:
                 pass
             raise
+
+    def _state_from_anomalies(self, anomalies: list[Anomaly]) -> str:
+        if any(a.severity is Severity.CRITICAL for a in anomalies):
+            return SystemState.CRITICAL.value
+        if any(a.severity is Severity.WARNING for a in anomalies):
+            return SystemState.WARNING.value
+        return SystemState.NORMAL.value
 
 
 def read_snapshot(path: str | Path) -> dict | None:

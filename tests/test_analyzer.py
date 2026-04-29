@@ -34,6 +34,8 @@ class AnalyzerTests(unittest.TestCase):
                 bandwidth_mbps_out=20,
                 connections_total=50,
                 min_samples_for_stats=99,
+                smoothing_window=1,
+                persistence_intervals=1,
             ),
             window_size=30,
         )
@@ -49,7 +51,12 @@ class AnalyzerTests(unittest.TestCase):
 
     def test_packet_error_rate_is_critical(self):
         analyzer = Analyzer(
-            ThresholdCfg(packet_error_rate=0.10, min_samples_for_stats=99),
+            ThresholdCfg(
+                packet_error_rate=0.10,
+                min_samples_for_stats=99,
+                smoothing_window=1,
+                persistence_intervals=1,
+            ),
             window_size=30,
         )
 
@@ -67,6 +74,8 @@ class AnalyzerTests(unittest.TestCase):
                 connections_total=10_000,
                 zscore_threshold=3.0,
                 min_samples_for_stats=4,
+                smoothing_window=1,
+                persistence_intervals=1,
             ),
             window_size=10,
         )
@@ -79,7 +88,10 @@ class AnalyzerTests(unittest.TestCase):
         self.assertIn("zscore:mbps_in", {a.key for a in anomalies})
 
     def test_warmup_sample_is_ignored(self):
-        analyzer = Analyzer(ThresholdCfg(bandwidth_mbps_in=1), window_size=10)
+        analyzer = Analyzer(
+            ThresholdCfg(bandwidth_mbps_in=1, smoothing_window=1, persistence_intervals=1),
+            window_size=10,
+        )
 
         anomalies = analyzer.analyze(sample(interval=0, mbps_in=99))
 

@@ -119,6 +119,9 @@ examples/
 
 ## Design decisions
 
+For the production-oriented architecture notes, state model, anomaly flow,
+alert lifecycle and plugin examples, see `docs/ARCHITECTURE.md`.
+
 **Async, single loop.** `psutil` exposes counters, not events, so we poll. A
 short interval (1–5 s) is the standard pattern. The loop is one coroutine —
 no thread pool, no message queue. Handlers run concurrently inside `asyncio`,

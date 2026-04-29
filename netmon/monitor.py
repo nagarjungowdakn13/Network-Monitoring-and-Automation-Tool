@@ -83,7 +83,7 @@ class NetworkMonitor:
 
     def _sample_sync(self) -> Sample:
         now = time.time()
-        counters_all = psutil.net_io_counters(pernic=True)
+        counters_all = self._psutil_call(lambda: psutil.net_io_counters(pernic=True), default={})
         counters = self._select_ifaces(counters_all)
 
         if self._prev_counters is None or self._prev_ts is None:
@@ -133,10 +133,7 @@ class NetworkMonitor:
 
         # Connection counts — `kind="inet"` covers TCP+UDP v4/v6.
         # Can require elevated privileges on Windows; we degrade gracefully.
-        try:
-            conns = psutil.net_connections(kind="inet")
-        except (psutil.AccessDenied, PermissionError):
-            conns = []
+        conns = self._psutil_call(lambda: psutil.net_connections(kind="inet"), default=[])
 
         by_state: dict[str, int] = {}
         for c in conns:
@@ -152,3 +149,14 @@ class NetworkMonitor:
             total_err_drop=tot_err, total_packets_window=tot_pkts,
             connections_total=len(conns), connections_by_state=by_state,
         )
+
+    def _psutil_call(self, fn, default, attempts: int = 2):
+        for i in range(attempts):
+            try:
+                return fn()
+            except (psutil.AccessDenied, PermissionError):
+                return default
+            except (psutil.Error, OSError):
+                if i == attempts - 1:
+                    return default
+                time.sleep(0.05)

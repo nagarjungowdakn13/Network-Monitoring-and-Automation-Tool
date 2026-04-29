@@ -22,6 +22,10 @@ thresholds:
   zscore_threshold: 3.0
   # Minimum samples before z-score detection activates.
   min_samples_for_stats: 10
+  # Smooth short bursts before analysis. Set to 1 to disable.
+  smoothing_window: 3
+  # Require the same anomaly key to persist for N ticks before emitting.
+  persistence_intervals: 2
 
 alerts:
   # Don't re-fire the same alert key within this many seconds.
@@ -43,6 +47,8 @@ logging:
   max_bytes: 10485760   # 10 MiB
   backup_count: 5
   console: true
+  # Emit JSON logs for production log shippers.
+  structured: false
 
 state:
   # Where the live status snapshot is written (read by `show-status`).

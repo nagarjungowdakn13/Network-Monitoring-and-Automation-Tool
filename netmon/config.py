@@ -30,6 +30,8 @@ class ThresholdCfg:
     packet_error_rate: float = 0.02
     zscore_threshold: float = 3.0
     min_samples_for_stats: int = 10
+    smoothing_window: int = 3
+    persistence_intervals: int = 2
 
 
 @dataclass
@@ -51,6 +53,7 @@ class LogCfg:
     max_bytes: int = 10 * 1024 * 1024
     backup_count: int = 5
     console: bool = True
+    structured: bool = False
 
 
 @dataclass

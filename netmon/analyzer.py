@@ -59,6 +59,12 @@ class Analyzer:
             "mbps_out": deque(maxlen=window_size),
             "conns":    deque(maxlen=window_size),
         }
+        self._smooth: dict[str, Deque[float]] = {
+            "mbps_in":  deque(maxlen=max(cfg.smoothing_window, 1)),
+            "mbps_out": deque(maxlen=max(cfg.smoothing_window, 1)),
+            "conns":    deque(maxlen=max(cfg.smoothing_window, 1)),
+        }
+        self._persistence: dict[str, int] = {}
 
     def analyze(self, s: Sample) -> list[Anomaly]:
         anomalies: list[Anomaly] = []
@@ -67,35 +73,42 @@ class Analyzer:
         if s.interval <= 0:
             return anomalies
 
-        self._window["mbps_in"].append(s.mbps_in)
-        self._window["mbps_out"].append(s.mbps_out)
-        self._window["conns"].append(float(s.connections_total))
+        values = {
+            "mbps_in": s.mbps_in,
+            "mbps_out": s.mbps_out,
+            "conns": float(s.connections_total),
+        }
+        smoothed = {k: self._smooth_value(k, v) for k, v in values.items()}
+
+        self._window["mbps_in"].append(smoothed["mbps_in"])
+        self._window["mbps_out"].append(smoothed["mbps_out"])
+        self._window["conns"].append(smoothed["conns"])
 
         # --- Hard thresholds ---
-        if s.mbps_in > self.cfg.bandwidth_mbps_in:
+        if smoothed["mbps_in"] > self.cfg.bandwidth_mbps_in:
             anomalies.append(Anomaly(
                 key="threshold:mbps_in", severity=Severity.WARNING,
-                metric="mbps_in", value=s.mbps_in,
+                metric="mbps_in", value=smoothed["mbps_in"],
                 threshold=self.cfg.bandwidth_mbps_in,
-                message=f"Inbound bandwidth {s.mbps_in:.2f} Mbps exceeds threshold "
+                message=f"Inbound bandwidth {smoothed['mbps_in']:.2f} Mbps exceeds threshold "
                         f"{self.cfg.bandwidth_mbps_in:.2f} Mbps",
                 sample_ts=s.ts,
             ))
-        if s.mbps_out > self.cfg.bandwidth_mbps_out:
+        if smoothed["mbps_out"] > self.cfg.bandwidth_mbps_out:
             anomalies.append(Anomaly(
                 key="threshold:mbps_out", severity=Severity.WARNING,
-                metric="mbps_out", value=s.mbps_out,
+                metric="mbps_out", value=smoothed["mbps_out"],
                 threshold=self.cfg.bandwidth_mbps_out,
-                message=f"Outbound bandwidth {s.mbps_out:.2f} Mbps exceeds threshold "
+                message=f"Outbound bandwidth {smoothed['mbps_out']:.2f} Mbps exceeds threshold "
                         f"{self.cfg.bandwidth_mbps_out:.2f} Mbps",
                 sample_ts=s.ts,
             ))
-        if s.connections_total > self.cfg.connections_total:
+        if smoothed["conns"] > self.cfg.connections_total:
             anomalies.append(Anomaly(
                 key="threshold:connections", severity=Severity.WARNING,
-                metric="connections_total", value=float(s.connections_total),
+                metric="connections_total", value=smoothed["conns"],
                 threshold=float(self.cfg.connections_total),
-                message=f"Open connections {s.connections_total} exceeds threshold "
+                message=f"Open connections {smoothed['conns']:.0f} exceeds threshold "
                         f"{self.cfg.connections_total}",
                 sample_ts=s.ts,
             ))
@@ -119,6 +132,7 @@ class Analyzer:
             ("mbps_out", "mbps_out",           s.mbps_out),
             ("conns",    "connections_total",  float(s.connections_total)),
         ):
+            value = smoothed[label]
             z = self._zscore(label, value)
             if z is not None and z > self.cfg.zscore_threshold:
                 anomalies.append(Anomaly(
@@ -129,7 +143,27 @@ class Analyzer:
                     sample_ts=s.ts,
                 ))
 
-        return anomalies
+        return self._persistent(anomalies)
+
+    def _smooth_value(self, label: str, value: float) -> float:
+        w = self._smooth[label]
+        w.append(value)
+        return statistics.fmean(w)
+
+    def _persistent(self, anomalies: list[Anomaly]) -> list[Anomaly]:
+        required = max(self.cfg.persistence_intervals, 1)
+        active = {a.key for a in anomalies}
+        for key in list(self._persistence):
+            if key not in active:
+                self._persistence.pop(key, None)
+
+        emitted: list[Anomaly] = []
+        for a in anomalies:
+            count = self._persistence.get(a.key, 0) + 1
+            self._persistence[a.key] = count
+            if count >= required:
+                emitted.append(a)
+        return emitted
 
     def _zscore(self, label: str, value: float) -> float | None:
         w = self._window[label]
