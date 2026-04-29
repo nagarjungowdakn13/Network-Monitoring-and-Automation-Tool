@@ -1,0 +1,51 @@
+# netmon — default configuration
+# All values can be overridden via --config <path> or env vars (NETMON_*)
+
+monitor:
+  # How often to sample (seconds). Lower = more responsive, higher CPU.
+  interval_seconds: 2
+  # Rolling window size used for statistical anomaly detection.
+  window_size: 30
+  # Specific interfaces to track. Empty list = aggregate across all non-loopback.
+  interfaces: []
+  # Track per-process connection counts (slower; needs admin on Windows).
+  per_process: false
+
+thresholds:
+  # Hard limits — exceed these and an alert fires regardless of trend.
+  bandwidth_mbps_in: 100.0
+  bandwidth_mbps_out: 100.0
+  connections_total: 5000
+  # Fraction of (errin+errout+dropin+dropout) over total packets in window.
+  packet_error_rate: 0.02
+  # Statistical: z-score above rolling mean to flag a spike.
+  zscore_threshold: 3.0
+  # Minimum samples before z-score detection activates.
+  min_samples_for_stats: 10
+
+alerts:
+  # Don't re-fire the same alert key within this many seconds.
+  cooldown_seconds: 60
+  # Handlers run in order. Each handler receives the Anomaly payload.
+  handlers:
+    - type: log         # writes to the configured logger
+      level: WARNING
+    - type: console     # prints a coloured banner to stderr
+    # - type: script    # runs an external command; %JSON% is replaced with payload
+    #   command: ["python", "examples/alert_action.py"]
+    # - type: webhook   # POSTs JSON to a URL
+    #   url: "https://hooks.example.com/netmon"
+    #   timeout_seconds: 5
+
+logging:
+  level: INFO
+  file: logs/netmon.log
+  max_bytes: 10485760   # 10 MiB
+  backup_count: 5
+  console: true
+
+state:
+  # Where the live status snapshot is written (read by `show-status`).
+  file: .netmon-state.json
+  # How often to flush the snapshot to disk.
+  flush_every_seconds: 2

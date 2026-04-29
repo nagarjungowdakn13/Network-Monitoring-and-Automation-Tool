@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+
+.claude/
+
+.netmon-state.json
+logs/
+
+.chrome-profile/
+.chrome-dark-profile/
+.edge-profile/
